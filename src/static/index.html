@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous Trading Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Vanilla CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-logo">
+                <i class="fa-solid fa-microchip-trend logo-icon"></i>
+                <div class="logo-text">
+                    <h1>Antigravity Trade Bot</h1>
+                    <span class="version">v1.0.0</span>
+                </div>
+            </div>
+            
+            <div class="header-status">
+                <div class="status-badge" id="bot-mode-badge">
+                    <span class="status-dot green-glow"></span>
+                    <span id="bot-mode-text">Loading...</span>
+                </div>
+                <div class="status-badge" id="bot-running-badge">
+                    <span class="status-dot" id="running-dot"></span>
+                    <span id="bot-running-text">Loading...</span>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <button id="btn-toggle-trading" class="action-btn">
+                    <i class="fa-solid fa-pause"></i> <span id="toggle-text">Pause Bot</span>
+                </button>
+                <button id="btn-close-all" class="action-btn danger-btn">
+                    <i class="fa-solid fa-circle-xmark"></i> Force Close All
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-body">
+            <!-- Grid Row: Performance Cards -->
+            <section class="metrics-grid">
+                <div class="metric-card balance-card">
+                    <div class="card-header">
+                        <span>Total Equity</span>
+                        <i class="fa-solid fa-wallet card-icon"></i>
+                    </div>
+                    <div class="card-value font-mono" id="val-total-equity">0.00 <span class="currency">USDT</span></div>
+                    <div class="card-footer green-text">
+                        <i class="fa-solid fa-shield-halved"></i> Live Account Tracking
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="card-header">
+                        <span>Available USDT</span>
+                        <i class="fa-solid fa-coins card-icon"></i>
+                    </div>
+                    <div class="card-value font-mono" id="val-available-balance">0.00 <span class="currency">USDT</span></div>
+                    <div class="card-footer">
+                        Available Margin for Entries
+                    </div>
+                </div>
+
+                <div class="metric-card pnl-card" id="card-net-pnl">
+                    <div class="card-header">
+                        <span>Net Profit/Loss</span>
+                        <i class="fa-solid fa-chart-line card-icon"></i>
+                    </div>
+                    <div class="card-value font-mono" id="val-net-pnl">+0.00 <span class="currency">USDT</span></div>
+                    <div class="card-footer" id="val-net-pnl-pct">
+                        +0.00% Account Return
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="card-header">
+                        <span>Win Rate</span>
+                        <i class="fa-solid fa-percent card-icon"></i>
+                    </div>
+                    <div class="card-value font-mono" id="val-win-rate">0.0%</div>
+                    <div class="card-footer" id="val-win-rate-text">
+                        0 of 0 successful trades
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="card-header">
+                        <span>Profit Factor</span>
+                        <i class="fa-solid fa-scale-balanced card-icon"></i>
+                    </div>
+                    <div class="card-value font-mono" id="val-profit-factor">0.00</div>
+                    <div class="card-footer">
+                        Gross Profit / Gross Loss Ratio
+                    </div>
+                </div>
+            </section>
+
+            <!-- Grid Row: Positions & Logs -->
+            <section class="dashboard-sections">
+                <!-- Open Positions -->
+                <div class="section-card positions-section">
+                    <div class="section-header">
+                        <h2><i class="fa-solid fa-arrows-left-right-to-line"></i> Active Open Positions</h2>
+                        <span class="badge" id="open-positions-count-badge">0 Active</span>
+                    </div>
+                    <div class="table-container">
+                        <table id="table-positions">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Entry Price</th>
+                                    <th>Last Price</th>
+                                    <th>Quantity</th>
+                                    <th>Unrealized P&L</th>
+                                    <th>Stop Loss</th>
+                                    <th>Take Profit</th>
+                                    <th>Entry Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positions-body">
+                                <tr>
+                                    <td colspan="9" class="empty-row">No active positions. Scanning markets...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Closed History -->
+                <div class="section-card history-section">
+                    <div class="section-header">
+                        <h2><i class="fa-solid fa-history"></i> Recent Trade History</h2>
+                    </div>
+                    <div class="table-container">
+                        <table id="table-history">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Entry Price</th>
+                                    <th>Exit Price</th>
+                                    <th>Quantity</th>
+                                    <th>PnL %</th>
+                                    <th>Net PnL</th>
+                                    <th>Exit Trigger</th>
+                                    <th>Exit Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                                <tr>
+                                    <td colspan="8" class="empty-row">No closed trades recorded yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- System Console Logs -->
+            <section class="section-card console-section">
+                <div class="section-header">
+                    <h2><i class="fa-solid fa-terminal"></i> System Terminal Logs (Last 15 Events)</h2>
+                    <span class="badge" id="terminal-pulse">Active</span>
+                </div>
+                <div class="console-log-container" id="console-log-container">
+                    <div class="log-line system-msg">Initializing UI system console listener...</div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Footer -->
+        <footer class="app-footer-bar">
+            <span><i class="fa-solid fa-clock"></i> Web Connection Status: <span id="conn-status" class="connecting">Connecting WebSocket...</span></span>
+            <span>Local Webserver running at <code>http://127.0.0.1:9090</code></span>
+        </footer>
+    </div>
+
+    <!-- JS Logic -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
