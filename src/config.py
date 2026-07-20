@@ -11,7 +11,7 @@ class Config:
     PAPER_TRADING: bool = os.getenv("PAPER_TRADING", "True").lower() in ("true", "1", "yes")
     DB_PATH: str = os.getenv("DB_PATH", "data/trading_bot.db")
     WEB_PORT: int = int(os.getenv("WEB_PORT", "9090"))
-    WEB_HOST: str = os.getenv("WEB_HOST", "127.0.0.1")
+    WEB_HOST: str = os.getenv("WEB_HOST", "0.0.0.0")
     
     # Binance API Keys
     BINANCE_API_KEY: str = os.getenv("BINANCE_API_KEY", "")
