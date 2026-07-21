@@ -12,7 +12,7 @@ class CipherStrategy:
         self.wt_channel_len = 10
         self.wt_avg_len = 21
         self.wt_overbought = 53
-        self.wt_oversold = -45
+        self.wt_oversold = -50
         
         # Confirmation Parameters
         self.adx_period = 14
