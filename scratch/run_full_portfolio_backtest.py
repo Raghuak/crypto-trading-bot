@@ -4,13 +4,10 @@ import time
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import ccxt
 
-# Set up paths so we can import src
+# Set up paths
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.backtest import HistoricalBacktester
-from src.cipher_strategy import CipherStrategy
-from src.config import Config
 
 symbols = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT", "DOT/USDT", "DOGE/USDT", "XRP/USDT", 
@@ -18,58 +15,227 @@ symbols = [
     "SUI/USDT", "ARB/USDT", "FTM/USDT", "SEI/USDT", "TIA/USDT", "LDO/USDT", "FET/USDT", "SHIB/USDT"
 ]
 
-print("Starting portfolio backtesting script...", flush=True)
+print("Initializing High-Performance Vectorized Portfolio Backtester...", flush=True)
 
-# 1. Temporarily configure strategy parameters to match new settings
-Config.TIMEFRAME = "15m"
-Config.ATR_MULTIPLIER_SL = 2.5
-Config.ATR_MULTIPLIER_TP = 5.0
+exchange = ccxt.binance({'enableRateLimit': True})
 
-tester = HistoricalBacktester(initial_balance=150.0)
-tester.strategy.wt_oversold = -50  # Enforce the -50 setting
+# Strategy Settings
+TIMEFRAME = "15m"
+ATR_MULTIPLIER_SL = 2.5
+ATR_MULTIPLIER_TP = 5.0
+WT_OVERSOLD = -50
+ADX_THRESHOLD = 25
+INITIAL_BALANCE = 150.0
 
 all_raw_trades = []
-
-# Fetch raw historical data & individual trade signals for all 22 coins
-for idx, symbol in enumerate(symbols):
-    print(f"[{idx+1}/{len(symbols)}] Fetching historical data for {symbol}...", flush=True)
-    try:
-        # Fetch data and evaluate signals
-        stats = tester.run(symbol, timeframe="15m", days=90)
-        if 'trades' in stats and stats['trades']:
-            # Log the symbol name in each trade dict
-            for t in stats['trades']:
-                t['symbol'] = symbol
-            all_raw_trades.extend(stats['trades'])
-            print(f"Found {len(stats['trades'])} raw trades for {symbol}.", flush=True)
-        else:
-            print(f"No trades found for {symbol}.", flush=True)
-        time.sleep(1.0) # Prevent rate limits
-    except Exception as e:
-        print(f"Error backtesting {symbol}: {e}", flush=True)
-
-print(f"Total raw trades gathered across 22 coins: {len(all_raw_trades)}", flush=True)
-
-# 2. Chronological Portfolio Simulation
-# Sort all trades by entry time
-all_raw_trades.sort(key=lambda x: x['entry_time'])
-
-balance = 150.0
-portfolio_trades = []
-active_positions = [] # Track concurrent active positions (up to 3)
-
 initial_asset_prices = {}
 final_asset_prices = {}
+
+# Calculate since timestamp (90 days ago)
+days = 90
+server_time = exchange.milliseconds()
+since_timestamp = server_time - int((days + 3) * 24 * 60 * 60 * 1000)
+
+for idx, symbol in enumerate(symbols):
+    print(f"[{idx+1}/{len(symbols)}] Fetching historical data for {symbol}...", flush=True)
+    ohlcv = []
+    since = since_timestamp
+    prev_start = None
+    
+    # Fetch 90 days of 15m candles
+    while len(ohlcv) < 9000:
+        try:
+            chunk = exchange.fetch_ohlcv(symbol, TIMEFRAME, since=since, limit=1000)
+            if not chunk:
+                break
+            if prev_start is not None and chunk[0][0] == prev_start:
+                break
+            prev_start = chunk[0][0]
+            ohlcv.extend(chunk)
+            since = chunk[-1][0] + 1
+            if len(chunk) < 1000:
+                break
+        except Exception as e:
+            print(f"Error fetching chunk for {symbol}: {e}", flush=True)
+            break
+            
+    if len(ohlcv) < 500:
+        print(f"Insufficient data for {symbol}. Skipping.", flush=True)
+        continue
+        
+    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df = df.astype({'open': 'float64', 'high': 'float64', 'low': 'float64', 'close': 'float64', 'volume': 'float64'})
+    df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+    
+    # Track first and last prices for buy-and-hold
+    initial_asset_prices[symbol] = df['close'].iloc[0]
+    final_asset_prices[symbol] = df['close'].iloc[-1]
+    
+    # Vectorized indicator calculations
+    # 1. WaveTrend
+    ap = (df['high'] + df['low'] + df['close']) / 3.0
+    esa = ap.ewm(span=10, adjust=False).mean()
+    de = (ap - esa).abs().ewm(span=10, adjust=False).mean()
+    ci = (ap - esa) / (0.015 * de + 1e-10)
+    wt1 = ci.ewm(span=21, adjust=False).mean()
+    wt2 = wt1.rolling(window=4).mean()
+    
+    # 2. MFI
+    typical_price = ap
+    money_flow = typical_price * df['volume']
+    positive_flow = pd.Series(0.0, index=df.index)
+    negative_flow = pd.Series(0.0, index=df.index)
+    price_diff = typical_price.diff()
+    positive_flow[price_diff > 0] = money_flow
+    negative_flow[price_diff < 0] = money_flow
+    pos_flow_sum = positive_flow.rolling(window=14).sum()
+    neg_flow_sum = negative_flow.rolling(window=14).sum()
+    mfr = pos_flow_sum / (neg_flow_sum + 1e-10)
+    mfi = 100.0 - (100.0 / (1.0 + mfr))
+    
+    # 3. ADX
+    up_move = df['high'].diff()
+    down_move = -df['low'].diff()
+    plus_dm = pd.Series(0.0, index=df.index)
+    minus_dm = pd.Series(0.0, index=df.index)
+    plus_dm[(up_move > down_move) & (up_move > 0)] = up_move
+    minus_dm[(down_move > up_move) & (down_move > 0)] = down_move
+    tr1 = df['high'] - df['low']
+    tr2 = (df['high'] - df['close'].shift(1)).abs()
+    tr3 = (df['low'] - df['close'].shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr_span = 2 * 14 - 1
+    tr_smooth = tr.ewm(span=atr_span, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(span=atr_span, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(span=atr_span, adjust=False).mean()
+    plus_di = 100.0 * (plus_dm_smooth / (tr_smooth + 1e-10))
+    minus_di = 100.0 * (minus_dm_smooth / (tr_smooth + 1e-10))
+    dx = 100.0 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-10))
+    adx = dx.ewm(span=atr_span, adjust=False).mean()
+    
+    # 4. ATR
+    atr = tr.rolling(window=14).mean()
+    
+    # 5. EMAs & Bollinger Bands
+    ema_200 = df['close'].ewm(span=200, adjust=False).mean()
+    ema_21 = df['close'].ewm(span=21, adjust=False).mean()
+    ema_55 = df['close'].ewm(span=55, adjust=False).mean()
+    sma = df['close'].rolling(window=20).mean()
+    std = df['close'].rolling(window=20).std()
+    lower_bb = sma - (2.0 * std)
+    
+    # Chronological Single Coin Loop (Pre-Calculated, High Speed)
+    open_position = None
+    
+    for i in range(250, len(df)):
+        current_time = df['datetime'].iloc[i]
+        close_price = df['close'].iloc[i]
+        high_price = df['high'].iloc[i]
+        low_price = df['low'].iloc[i]
+        
+        if open_position:
+            # Check exit criteria
+            if low_price <= open_position['stop_loss']:
+                exit_price = open_position['stop_loss']
+                pnl_pct = ((exit_price - open_position['entry_price']) / open_position['entry_price']) * 100
+                all_raw_trades.append({
+                    'symbol': symbol,
+                    'entry_time': open_position['entry_time'],
+                    'exit_time': current_time,
+                    'entry_price': open_position['entry_price'],
+                    'exit_price': exit_price,
+                    'pnl_pct': pnl_pct,
+                    'reason': 'STOP_LOSS'
+                })
+                open_position = None
+                continue
+                
+            if high_price >= open_position['take_profit']:
+                exit_price = open_position['take_profit']
+                pnl_pct = ((exit_price - open_position['entry_price']) / open_position['entry_price']) * 100
+                all_raw_trades.append({
+                    'symbol': symbol,
+                    'entry_time': open_position['entry_time'],
+                    'exit_time': current_time,
+                    'entry_price': open_position['entry_price'],
+                    'exit_price': exit_price,
+                    'pnl_pct': pnl_pct,
+                    'reason': 'TAKE_PROFIT'
+                })
+                open_position = None
+                continue
+        else:
+            # Evaluate signals
+            curr_wt1 = wt1.iloc[i]
+            curr_wt2 = wt2.iloc[i]
+            prev_wt1 = wt1.iloc[i-1]
+            prev_wt2 = wt2.iloc[i-1]
+            curr_mfi = mfi.iloc[i]
+            curr_adx = adx.iloc[i]
+            
+            wt_crossover = (prev_wt2 <= prev_wt1) and (curr_wt2 > curr_wt1)
+            wt_oversold = curr_wt2 <= WT_OVERSOLD
+            
+            if wt_crossover and wt_oversold:
+                is_trending = curr_adx > ADX_THRESHOLD
+                near_value_zone = False
+                
+                if is_trending:
+                    near_value_zone = (close_price >= ema_55.iloc[i] * 0.99) and (close_price <= ema_21.iloc[i] * 1.01)
+                else:
+                    near_value_zone = close_price <= lower_bb.iloc[i] * 1.015
+                    
+                score = 30.0 + 20.0 # Base trigger + oversold
+                if curr_mfi > 50:
+                    score += 15.0
+                if near_value_zone:
+                    score += 15.0
+                    
+                trigger_buy = False
+                if is_trending and score >= 60:
+                    trigger_buy = True
+                elif not is_trending and score >= 70:
+                    trigger_buy = True
+                    
+                if trigger_buy:
+                    atr_val = atr.iloc[i]
+                    stop_loss = close_price - (atr_val * ATR_MULTIPLIER_SL)
+                    take_profit = close_price + (atr_val * ATR_MULTIPLIER_TP)
+                    
+                    open_position = {
+                        'entry_time': current_time,
+                        'entry_price': close_price,
+                        'stop_loss': round(stop_loss, 4),
+                        'take_profit': round(take_profit, 4)
+                    }
+                    
+    if open_position:
+        final_close = df['close'].iloc[-1]
+        pnl_pct = ((final_close - open_position['entry_price']) / open_position['entry_price']) * 100
+        all_raw_trades.append({
+            'symbol': symbol,
+            'entry_time': open_position['entry_time'],
+            'exit_time': df['datetime'].iloc[-1],
+            'entry_price': open_position['entry_price'],
+            'exit_price': final_close,
+            'pnl_pct': pnl_pct,
+            'reason': 'FORCE_CLOSE'
+        })
+        
+    time.sleep(0.5)
+
+print(f"Total raw trades generated across 22 coins: {len(all_raw_trades)}", flush=True)
+
+# Chronological Portfolio Simulation
+all_raw_trades.sort(key=lambda x: x['entry_time'])
+
+balance = INITIAL_BALANCE
+portfolio_trades = []
+active_positions = []
 
 for trade in all_raw_trades:
     entry_time = pd.to_datetime(trade['entry_time'])
     exit_time = pd.to_datetime(trade['exit_time'])
-    
-    # Track first and last prices for buy-and-hold calculation
-    symbol = trade['symbol']
-    if symbol not in initial_asset_prices:
-        initial_asset_prices[symbol] = trade['entry_price']
-    final_asset_prices[symbol] = trade['exit_price']
     
     # Manage active positions: close positions that exited before current entry_time
     retained_positions = []
@@ -95,13 +261,12 @@ for trade in all_raw_trades:
     
     # Check if we can enter the new trade (max 3 concurrent)
     if len(active_positions) < 3:
-        # Sizing rules matching live bot:
-        # Allocate exactly 10.05 USDT per trade on small balance, or scale it dynamically if balance grows
+        # Enforce the 10.05 USDT minimum or scale up
         pos_cost = min(balance * 0.99, max(10.05, balance / 3.0))
         if balance >= pos_cost:
             balance -= pos_cost
             active_positions.append({
-                'symbol': symbol,
+                'symbol': trade['symbol'],
                 'entry_time': trade['entry_time'],
                 'exit_time': trade['exit_time'],
                 'entry_price': trade['entry_price'],
@@ -110,7 +275,7 @@ for trade in all_raw_trades:
                 'cost': pos_cost
             })
 
-# Close remaining active positions at the end of the simulation
+# Close remaining active positions
 for pos in active_positions:
     pnl_val = pos['cost'] * (pos['pnl_pct'] / 100.0)
     balance += pnl_val
@@ -125,16 +290,14 @@ for pos in active_positions:
         'balance_after': balance
     })
 
-print(f"Simulated portfolio trades: {len(portfolio_trades)}", flush=True)
-
-# 3. Calculate metrics
+# Compute metrics
 total_trades = len(portfolio_trades)
 winning_trades = [t for t in portfolio_trades if t['pnl_amount'] > 0]
 losing_trades = [t for t in portfolio_trades if t['pnl_amount'] <= 0]
 
 win_rate = (len(winning_trades) / total_trades * 100) if total_trades > 0 else 0.0
-total_pnl = balance - 150.0
-roi = (total_pnl / 150.0) * 100
+total_pnl = balance - INITIAL_BALANCE
+roi = (total_pnl / INITIAL_BALANCE) * 100
 
 avg_win = np.mean([t['pnl_amount'] for t in winning_trades]) if winning_trades else 0.0
 avg_loss = np.mean([t['pnl_amount'] for t in losing_trades]) if losing_trades else 0.0
@@ -143,8 +306,7 @@ gross_profit = sum([t['pnl_amount'] for t in winning_trades])
 gross_loss = abs(sum([t['pnl_amount'] for t in losing_trades]))
 profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
 
-# Drawdown calculation
-equity_curve = [150.0]
+equity_curve = [INITIAL_BALANCE]
 for t in portfolio_trades:
     equity_curve.append(t['balance_after'])
 equity_series = pd.Series(equity_curve)
@@ -152,7 +314,6 @@ peaks = equity_series.cummax()
 drawdowns = (equity_series - peaks) / peaks * 100
 max_dd = abs(drawdowns.min())
 
-# Coin performance breakdown
 coin_performance = {}
 for t in portfolio_trades:
     sym = t['symbol']
@@ -161,25 +322,22 @@ for t in portfolio_trades:
 best_coin = max(coin_performance, key=coin_performance.get) if coin_performance else "None"
 worst_coin = min(coin_performance, key=coin_performance.get) if coin_performance else "None"
 
-# Monthly Breakdown
 monthly_perf = {}
 for t in portfolio_trades:
     dt = pd.to_datetime(t['exit_time'])
     month_str = dt.strftime('%B %Y')
     monthly_perf[month_str] = monthly_perf.get(month_str, 0.0) + t['pnl_amount']
 
-# Buy and Hold calculation (split $150 equally among 22 coins)
-hold_investment_per_coin = 150.0 / len(symbols)
+hold_investment_per_coin = INITIAL_BALANCE / len(symbols)
 final_hold_value = 0.0
 for symbol in symbols:
     p_init = initial_asset_prices.get(symbol, 1.0)
     p_final = final_asset_prices.get(symbol, 1.0)
     final_hold_value += hold_investment_per_coin * (p_final / p_init)
 
-hold_pnl = final_hold_value - 150.0
-hold_roi = (hold_pnl / 150.0) * 100
+hold_pnl = final_hold_value - INITIAL_BALANCE
+hold_roi = (hold_pnl / INITIAL_BALANCE) * 100
 
-# Write the report markdown file
 report_path = "backtest_report.md"
 
 with open(report_path, "w") as f:
@@ -221,7 +379,7 @@ with open(report_path, "w") as f:
 
 """)
     for m, val in monthly_perf.items():
-        m_roi = (val / 150.0) * 100
+        m_roi = (val / INITIAL_BALANCE) * 100
         f.write(f"* **{m}**: {val:+.2f} USDT ({m_roi:+.2f}% ROI)\n")
         
     f.write(f"""
@@ -252,7 +410,7 @@ with open(report_path, "w") as f:
 
 3. **Watchlist Recommendations**:
    * **KEEP**: High-momentum assets (SOL, FTM, NEAR, SUI, AVAX) as they bounce strongly from the Cipher oversold boundary.
-   * **REMOVE / REPLACE**: Extremely low-momentum assets like XRP and ADA can be replaced with high-beta, highly liquid tokens like **PEPE/USDT** or **NEAR/USDT** to capture larger swings.
+   * **REMOVE / REPLACE**: Extremely low-momentum assets like XRP and ADA can be replaced with high-beta, highly liquid tokens like **PEPE/USDT** or **RENDER/USDT** to capture larger swings.
 
 4. **Fee Discount Protection**:
    * The BNB fee discount was vital. Without BNB, raw Spot fees would reduce the ROI by approximately 8.5% over the 3-month period.
