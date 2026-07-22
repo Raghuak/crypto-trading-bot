@@ -205,8 +205,8 @@ for idx, symbol in enumerate(symbols):
                     open_position = {
                         'entry_time': current_time,
                         'entry_price': close_price,
-                        'stop_loss': round(stop_loss, 4),
-                        'take_profit': round(take_profit, 4)
+                        'stop_loss': round(stop_loss, 8),
+                        'take_profit': round(take_profit, 8)
                     }
                     
     if open_position:
@@ -244,7 +244,7 @@ for trade in all_raw_trades:
         if pos_exit_time <= entry_time:
             # Position exited! Realize PNL
             pnl_val = pos['cost'] * (pos['pnl_pct'] / 100.0)
-            balance += pnl_val
+            balance += pos['cost'] + pnl_val
             portfolio_trades.append({
                 'symbol': pos['symbol'],
                 'entry_time': pos['entry_time'],
@@ -278,7 +278,7 @@ for trade in all_raw_trades:
 # Close remaining active positions
 for pos in active_positions:
     pnl_val = pos['cost'] * (pos['pnl_pct'] / 100.0)
-    balance += pnl_val
+    balance += pos['cost'] + pnl_val
     portfolio_trades.append({
         'symbol': pos['symbol'],
         'entry_time': pos['entry_time'],
