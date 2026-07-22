@@ -31,11 +31,22 @@ class RiskManager:
         position_qty = risk_amount / risk_per_unit
         position_cost = position_qty * entry_price
         
-        # Risk control: do not allocate more than the available balance or 95% of it to account for trading fees.
-        if position_cost > available_balance * 0.95:
+        # Risk control: do not allocate more than the available balance.
+        # Since fees are paid in BNB, we can allocate up to 99% of available balance.
+        if position_cost > available_balance * 0.99:
             logger.warning(f"Calculated position cost ({position_cost:.2f} USDT) exceeds safe available balance limit. Capping to balance.")
-            position_qty = (available_balance * 0.95) / entry_price
+            position_qty = (available_balance * 0.99) / entry_price
+            position_cost = position_qty * entry_price
             
+        # Ensure position cost meets the Binance Spot minimum of 10.0 USDT
+        if position_cost < 10.01:
+            if available_balance >= 10.05:
+                logger.info("Recalculated position cost is below Binance minimum. Adjusting to 10.05 USDT to ensure execution.")
+                position_qty = 10.05 / entry_price
+            else:
+                logger.warning(f"Available balance ({available_balance:.2f} USDT) is insufficient for Binance minimum trade size (10.0 USDT).")
+                return 0.0
+                
         # Ensure position qty is positive and non-zero
         if position_qty < 0:
             return 0.0
