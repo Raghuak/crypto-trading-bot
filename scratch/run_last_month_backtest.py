@@ -25,7 +25,7 @@ ATR_MULTIPLIER_SL = 2.5
 ATR_MULTIPLIER_TP = 5.0
 WT_OVERSOLD = -50
 ADX_THRESHOLD = 25
-INITIAL_BALANCE = 150.0
+INITIAL_BALANCE = 50.0
 
 all_raw_trades = []
 initial_asset_prices = {}
@@ -124,33 +124,6 @@ for idx, symbol in enumerate(symbols):
     std = df['close'].rolling(window=20).std()
     lower_bb = sma - (2.0 * std)
     
-    # Fetch BTC 1h data for trend validation
-    # Fetch 24 * 30 + 250 candles
-    btc_candles_needed = 24 * 30 + 250
-    btc_since = server_time - int((days + 5) * 24 * 60 * 60 * 1000)
-    btc_ohlcv = []
-    btc_prev_start = None
-    
-    while len(btc_ohlcv) < btc_candles_needed:
-        try:
-            chunk = exchange.fetch_ohlcv("BTC/USDT", "1h", since=btc_since, limit=1000)
-            if not chunk:
-                break
-            if btc_prev_start is not None and chunk[0][0] == btc_prev_start:
-                break
-            btc_prev_start = chunk[0][0]
-            btc_ohlcv.extend(chunk)
-            btc_since = chunk[-1][0] + 1
-            if len(chunk) < 1000:
-                break
-        except Exception as e:
-            print(f"Error fetching BTC 1h data: {e}", flush=True)
-            break
-            
-    btc_df = pd.DataFrame(btc_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    btc_df = btc_df.astype({'close': 'float64'})
-    btc_ema_200 = btc_df['close'].ewm(span=200, adjust=False).mean()
-    
     # Loop over 15m candles
     open_position = None
     
@@ -193,7 +166,7 @@ for idx, symbol in enumerate(symbols):
                 open_position = None
                 continue
         else:
-            # Evaluate signals with BTC 1h filter & Alt 15m trend filter
+            # Evaluate signals (Filters turned OFF for simulation as requested)
             curr_wt1 = wt1.iloc[i]
             curr_wt2 = wt2.iloc[i]
             prev_wt1 = wt1.iloc[i-1]
@@ -205,16 +178,8 @@ for idx, symbol in enumerate(symbols):
             wt_oversold = curr_wt2 <= WT_OVERSOLD
             
             if wt_crossover and wt_oversold:
-                # 1. Alt Trend Filter (Price > 200 EMA)
-                alt_bullish = close_price > ema_200.iloc[i]
-                
-                # 2. BTC Trend Filter (BTC Close > 200 EMA on 1h)
-                hour_ts = current_ts - (current_ts % 3600000)
-                btc_rows = btc_df[btc_df['timestamp'] <= hour_ts]
+                alt_bullish = True
                 btc_bullish = True
-                if not btc_rows.empty:
-                    btc_idx = btc_rows.index[-1]
-                    btc_bullish = btc_rows['close'].iloc[-1] > btc_ema_200.iloc[btc_idx]
                 
                 if alt_bullish and btc_bullish:
                     is_trending = curr_adx > ADX_THRESHOLD
@@ -301,8 +266,8 @@ for trade in all_raw_trades:
     
     # Check if we can enter the new trade (max 3 concurrent)
     if len(active_positions) < 3:
-        # Enforce the 10.05 USDT minimum or scale up
-        pos_cost = min(balance * 0.99, max(10.05, balance / 3.0))
+        # Enforce exactly 10.05 USDT per trade (matching live small account rules)
+        pos_cost = min(balance * 0.99, 10.05)
         if balance >= pos_cost:
             balance -= pos_cost
             active_positions.append({
@@ -370,9 +335,9 @@ report_path = "last_month_report.md"
 with open(report_path, "w") as f:
     f.write(f"""# Last Month P&L and Trade Audit Report
 **Testing Period**: Last 30 Days (July 10, 2026 to August 9, 2026)  
-**Strategy Config**: Gated Cipher B (WT Oversold = -50, SL = 2.5x ATR, TP = 5.0x ATR, BTC/Alt Filters = Active)  
+**Strategy Config**: Gated Cipher B (WT Oversold = -50, SL = 2.5x ATR, TP = 5.0x ATR, BTC/Alt Filters = OFF)  
 **Timeframe**: 15m  
-**Initial Capital**: $150.00 USDT  
+**Initial Capital**: $50.00 USDT  
 **Portfolio size**: 19 Symbols  
 
 ---
@@ -381,7 +346,7 @@ with open(report_path, "w") as f:
 
 | Metric | Gated Cipher B Bot | Buy & Hold Strategy |
 | :--- | :--- | :--- |
-| **Initial Balance** | $150.00 USDT | $150.00 USDT |
+| **Initial Balance** | $50.00 USDT | $50.00 USDT |
 | **Final Balance** | ${balance:.2f} USDT | ${final_hold_value:.2f} USDT |
 | **Total Net Profit** | ${total_pnl:+.2f} USDT | ${hold_pnl:+.2f} USDT |
 | **ROI (%)** | **{roi:+.2f}%** | **{hold_roi:+.2f}%** |
