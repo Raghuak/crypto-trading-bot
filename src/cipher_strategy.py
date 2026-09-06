@@ -243,8 +243,8 @@ class CipherStrategy:
             near_value_zone = curr_price <= lower_bb * 1.015 # within 1.5% of lower band
             
         # --- LAYER 4: Cipher Trigger (WaveTrend Crossover) ---
-        # WT2 crossed above WT1 in the oversold zone
-        wt_crossover = (prev_wt2 <= prev_wt1) and (curr_wt2 > curr_wt1)
+        # WT1 (fast) crossed above WT2 (slow) in the oversold zone = bullish crossover
+        wt_crossover = (prev_wt1 <= prev_wt2) and (curr_wt1 > curr_wt2)
         wt_oversold = curr_wt2 <= self.wt_oversold
         
         has_bullish_div = self.check_divergence(df, wt2)
@@ -267,7 +267,7 @@ class CipherStrategy:
         # Evaluate Final Gates
         if is_trending:
             # TREND LONG: HTF bullish, price pulled back to value zone, WT crossovers OS, Money Flow turning green
-            if is_htf_bullish and wt_crossover and wt_oversold and score >= 60:
+            if is_htf_bullish and wt_crossover and wt_oversold and score >= 70:
                 result['signal'] = 'BUY'
                 result['reason'] = 'Trend pullback long entry confirmed'
         else:
