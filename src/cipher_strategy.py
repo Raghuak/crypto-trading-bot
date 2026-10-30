@@ -255,8 +255,12 @@ class CipherStrategy:
             score += 30.0 # Base trigger points
         if wt_oversold:
             score += 20.0 # Extreme oversold bonus
-        if curr_mfi > 50:
-            score += 15.0 # Positive money flow bonus
+        
+        # MFI bonus: either positive flow (>50) or curling upward from oversold
+        prev_mfi = mfi.iloc[-2] if len(mfi) >= 2 else curr_mfi
+        if curr_mfi > 50 or (curr_mfi < 40 and curr_mfi > prev_mfi):
+            score += 15.0 # Positive or recovering money flow bonus
+            
         if near_value_zone:
             score += 15.0 # Value zone support bonus
         if has_bullish_div:
@@ -264,15 +268,15 @@ class CipherStrategy:
             
         result['composite_score'] = score
         
-        # Evaluate Final Gates
+        # Evaluate Final Gates (Threshold >= 60 allows clean 3-confluence setups: Crossover + Oversold + Support = 65 pts)
         if is_trending:
-            # TREND LONG: HTF bullish, price pulled back to value zone, WT crossovers OS, Money Flow turning green
-            if is_htf_bullish and wt_crossover and wt_oversold and score >= 70:
+            # TREND LONG: HTF bullish, price pulled back to value zone, WT crossovers OS
+            if is_htf_bullish and wt_crossover and wt_oversold and score >= 60:
                 result['signal'] = 'BUY'
                 result['reason'] = 'Trend pullback long entry confirmed'
         else:
-            # RANGE LONG: WT Crossover in OS area + Bullish Divergence on boundary
-            if wt_crossover and wt_oversold and (has_bullish_div or score >= 70):
+            # RANGE LONG: WT Crossover in OS area + Band support or Bullish Divergence
+            if wt_crossover and wt_oversold and (has_bullish_div or score >= 60):
                 result['signal'] = 'BUY'
                 result['reason'] = 'Range boundary reversal long entry confirmed'
                 
