@@ -268,15 +268,15 @@ class CipherStrategy:
             
         result['composite_score'] = score
         
-        # Evaluate Final Gates (Threshold >= 60 allows clean 3-confluence setups: Crossover + Oversold + Support = 65 pts)
+        # Evaluate Final Gates (Threshold >= 65 ensures full 3-layer confluence: Crossover + Oversold + Verified Support)
         if is_trending:
-            # TREND LONG: HTF bullish, price pulled back to value zone, WT crossovers OS
-            if is_htf_bullish and wt_crossover and wt_oversold and score >= 60:
+            # TREND LONG: HTF bullish, price pulled back to EMA support zone, WT oversold crossover
+            if is_htf_bullish and wt_crossover and wt_oversold and near_value_zone and score >= 65:
                 result['signal'] = 'BUY'
-                result['reason'] = 'Trend pullback long entry confirmed'
+                result['reason'] = 'Trend pullback to EMA support long entry confirmed'
         else:
             # RANGE LONG: WT Crossover in OS area + Band support or Bullish Divergence
-            if wt_crossover and wt_oversold and (has_bullish_div or score >= 60):
+            if wt_crossover and wt_oversold and (has_bullish_div or (near_value_zone and score >= 65)):
                 result['signal'] = 'BUY'
                 result['reason'] = 'Range boundary reversal long entry confirmed'
                 

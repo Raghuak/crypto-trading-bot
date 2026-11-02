@@ -196,6 +196,24 @@ async def main():
                     existing_trade = db.get_trade_by_symbol(symbol, 'OPEN')
                     if existing_trade:
                         continue
+                        
+                    # Cooldown check: if last trade on this symbol was a loss, wait 60 minutes before re-entering
+                    last_closed = db.get_last_closed_trade_by_symbol(symbol)
+                    if last_closed and (last_closed.get('pnl') or 0.0) < 0 and last_closed.get('exit_time'):
+                        try:
+                            from datetime import datetime, timezone
+                            exit_time_str = last_closed['exit_time']
+                            if exit_time_str.endswith('Z'):
+                                exit_time_str = exit_time_str[:-1] + '+00:00'
+                            exit_time = datetime.fromisoformat(exit_time_str)
+                            seconds_since_loss = (datetime.now(timezone.utc) - exit_time).total_seconds()
+                            cooldown_seconds = 3600  # 60 minute penalty box
+                            if 0 <= seconds_since_loss < cooldown_seconds:
+                                mins_left = int((cooldown_seconds - seconds_since_loss) / 60)
+                                logger.debug(f"Skipping {symbol}: in post-loss cooldown ({mins_left}m remaining).")
+                                continue
+                        except Exception as e:
+                            logger.debug(f"Error checking cooldown for {symbol}: {e}")
                     
                     # Verify portfolio risk limits
                     if not risk_manager.check_portfolio_risk(total_equity):

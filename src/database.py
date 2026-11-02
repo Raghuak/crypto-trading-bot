@@ -170,6 +170,14 @@ class Database:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def get_last_closed_trade_by_symbol(self, symbol: str) -> dict:
+        """Retrieves the most recent closed trade for a symbol to evaluate cooldowns."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM trades WHERE symbol = ? AND status = 'CLOSED' ORDER BY exit_time DESC LIMIT 1", (symbol,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_all_trades(self, limit: int = 100) -> list[dict]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
