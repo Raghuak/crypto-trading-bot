@@ -31,18 +31,35 @@ class RiskManager:
         position_qty = risk_amount / risk_per_unit
         position_cost = position_qty * entry_price
         
-        # Risk control: do not allocate more than the available balance.
-        # Since fees are paid in BNB, we can allocate up to 99% of available balance.
-        if position_cost > available_balance * 0.99:
-            logger.warning(f"Calculated position cost ({position_cost:.2f} USDT) exceeds safe available balance limit. Capping to balance.")
-            position_qty = (available_balance * 0.99) / entry_price
-            position_cost = position_qty * entry_price
+        # Risk control: Dynamic multi-slot allocation
+        # Divides balance evenly among slots so multiple positions can run simultaneously
+        open_trades_count = len(self.db.get_open_trades())
+        max_possible_slots = max(1, int(available_balance / 10.05))
+        configured_slots = max(1, Config.MAX_CONCURRENT_TRADES)
+        allowed_slots = min(configured_slots, max_possible_slots)
+        remaining_slots = max(1, allowed_slots - open_trades_count)
+        
+        # Calculate fair slot budget across remaining slots
+        slot_budget = available_balance / remaining_slots
+        if remaining_slots > 1:
+            # Guarantee at least 10.05 USDT remains for the next concurrent slot
+            slot_budget = min(slot_budget, available_balance - 10.05)
+        else:
+            slot_budget = available_balance * 0.99
+            
+        slot_budget = max(10.05, slot_budget)
+
+        if position_cost > slot_budget:
+            logger.info(f"Allocating position cost to slot budget: {slot_budget:.2f} USDT across {allowed_slots} slots.")
+            position_qty = slot_budget / entry_price
+            position_cost = slot_budget
             
         # Ensure position cost meets the Binance Spot minimum of 10.0 USDT
         if position_cost < 10.01:
             if available_balance >= 10.05:
                 logger.info("Recalculated position cost is below Binance minimum. Adjusting to 10.05 USDT to ensure execution.")
                 position_qty = 10.05 / entry_price
+                position_cost = 10.05
             else:
                 logger.warning(f"Available balance ({available_balance:.2f} USDT) is insufficient for Binance minimum trade size (10.0 USDT).")
                 return 0.0
