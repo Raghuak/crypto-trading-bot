@@ -83,7 +83,8 @@ async def main():
                 bal = exchange.fetch_balance()
                 total_bal = bal['total'].get('USDT', 0.0)
                 free_bal = bal['free'].get('USDT', 0.0)
-                db.log_equity(total_bal, free_bal, False)
+                if total_bal > 0 and total_bal < 500.0:
+                    db.log_equity(total_bal, free_bal, False)
             except Exception as e:
                 logger.error(f"Failed to log initial balance: {e}")
 
@@ -98,7 +99,8 @@ async def main():
 
     # Start live terminal UI updating
     # We use rich Live console renderer
-    with Live(dashboard.draw(0, 0, 0, {}), refresh_per_second=1, screen=True) as live:
+    use_screen = sys.stdout.isatty()
+    with Live(dashboard.draw(0, 0, 0, {}), refresh_per_second=1, screen=use_screen) as live:
         try:
             while True:
                 loop_count += 1
@@ -169,15 +171,21 @@ async def main():
                         total_equity = usdt_total + open_value + bnb_value
                 except Exception as e:
                     logger.error(f"Error reading account balance: {e}")
-                    total_equity = 10000.0
-                    available_balance = 10000.0
+                    if Config.PAPER_TRADING:
+                        total_equity = 10000.0
+                        available_balance = 10000.0
+                    else:
+                        latest_eq = db.get_latest_equity(False)
+                        total_equity = latest_eq['total_balance'] if latest_eq else 0.0
+                        available_balance = latest_eq['available_balance'] if latest_eq else 0.0
                     ticker_prices = {}
 
-                # B. Log equity curves periodically
-                try:
-                    db.log_equity(total_equity, available_balance, Config.PAPER_TRADING)
-                except Exception as e:
-                    logger.debug(f"Error logging equity: {e}")
+                # B. Log equity curves periodically (only log valid balances)
+                if total_equity > 0 and (Config.PAPER_TRADING or total_equity < 500.0):
+                    try:
+                        db.log_equity(total_equity, available_balance, Config.PAPER_TRADING)
+                    except Exception as e:
+                        logger.debug(f"Error logging equity: {e}")
 
                 # C. Check exits and trailing stops (Real-time safety)
                 position_manager.manage_positions()

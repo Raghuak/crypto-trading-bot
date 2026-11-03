@@ -70,6 +70,12 @@ class Database:
                     paper_trading INTEGER NOT NULL -- 1 for True, 0 for False
                 )
             """)
+            
+            # Clean up any rogue 10000.0 placeholder logs for live trading
+            cursor.execute("""
+                DELETE FROM equity_logs 
+                WHERE paper_trading = 0 AND total_balance > 500.0
+            """)
             conn.commit()
 
     # --- Order DB Operations ---
@@ -212,15 +218,30 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             today_start = datetime.utcnow().date().isoformat() + "T00:00:00"
-            cursor.execute("""
+            query = """
                 SELECT total_balance FROM equity_logs 
-                WHERE paper_trading = ? AND timestamp >= ? 
-                ORDER BY timestamp ASC LIMIT 1
-            """, (1 if paper_trading else 0, today_start))
+                WHERE paper_trading = ? AND timestamp >= ?
+            """
+            params = [1 if paper_trading else 0, today_start]
+            if not paper_trading:
+                query += " AND total_balance < 500.0 "
+            query += " ORDER BY timestamp ASC LIMIT 1 "
+            
+            cursor.execute(query, params)
             row = cursor.fetchone()
             if row:
                 return row['total_balance']
             
-            # If no logs today yet, get the absolute latest logged balance
+            # If no logs today yet, get the latest valid balance
+            if not paper_trading:
+                cursor.execute("""
+                    SELECT total_balance FROM equity_logs 
+                    WHERE paper_trading = 0 AND total_balance < 500.0 
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+                row = cursor.fetchone()
+                if row:
+                    return row['total_balance']
+
             latest = self.get_latest_equity(paper_trading)
             return latest['total_balance'] if latest else 0.0
