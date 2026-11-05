@@ -138,13 +138,18 @@ document.addEventListener("DOMContentLoaded", () => {
     function formatTime(isoStr) {
         if (!isoStr) return "-";
         try {
+            // Parse ISO string into Date object (automatically converts UTC to local browser timezone)
+            const d = new Date(isoStr);
+            if (!isNaN(d.getTime())) {
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                const hh = String(d.getHours()).padStart(2, '0');
+                const min = String(d.getMinutes()).padStart(2, '0');
+                return `${mm}-${dd} ${hh}:${min}`;
+            }
             const parts = isoStr.split("T");
             if (parts.length < 2) return isoStr.substring(0, 16);
-            const datePart = parts[0];
-            const timePart = parts[1];
-            const mm_dd = datePart.substring(5);
-            const hh_mm = timePart.substring(0, 5);
-            return `${mm_dd} ${hh_mm}`;
+            return `${parts[0].substring(5)} ${parts[1].substring(0, 5)}`;
         } catch (e) {
             return isoStr.substring(0, 16);
         }
