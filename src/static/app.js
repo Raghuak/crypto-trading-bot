@@ -135,17 +135,35 @@ document.addEventListener("DOMContentLoaded", () => {
         elProfitFactor.textContent = data.metrics.profit_factor;
     }
 
+    function getOrdinalSuffix(day) {
+        if (day > 3 && day < 21) return 'th';
+        switch (day % 10) {
+            case 1:  return "st";
+            case 2:  return "nd";
+            case 3:  return "rd";
+            default: return "th";
+        }
+    }
+
     function formatTime(isoStr) {
         if (!isoStr) return "-";
         try {
             // Parse ISO string into Date object (automatically converts UTC to local browser timezone)
             const d = new Date(isoStr);
             if (!isNaN(d.getTime())) {
-                const mm = String(d.getMonth() + 1).padStart(2, '0');
-                const dd = String(d.getDate()).padStart(2, '0');
-                const hh = String(d.getHours()).padStart(2, '0');
+                const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+                const month = months[d.getMonth()];
+                const day = d.getDate();
+                const daySuffix = getOrdinalSuffix(day);
+
+                let hours = d.getHours();
+                const ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12;
+                hours = hours ? hours : 12; // 0 becomes 12
+                const hh = String(hours).padStart(2, '0');
                 const min = String(d.getMinutes()).padStart(2, '0');
-                return `${mm}-${dd} ${hh}:${min}`;
+
+                return `${month} ${day}${daySuffix}, ${hh}:${min} ${ampm}`;
             }
             const parts = isoStr.split("T");
             if (parts.length < 2) return isoStr.substring(0, 16);
