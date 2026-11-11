@@ -197,6 +197,16 @@ async def main():
                     last_scan_time = current_time
 
                 # E. Evaluate entry signals on watch list
+                btc_bias_df = None
+                if Config.ENABLE_BTC_TREND_FILTER:
+                    try:
+                        btc_ohlcv = exchange.fetch_ohlcv("BTC/USDT", "1h", limit=10)
+                        if btc_ohlcv:
+                            import pandas as pd
+                            btc_bias_df = pd.DataFrame(btc_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    except Exception as e:
+                        logger.debug(f"Failed to fetch BTC bias for scanner: {e}")
+
                 for candidate in (watchlist if Config.TRADING_ACTIVE else []):
                     symbol = candidate['symbol']
                     
@@ -236,7 +246,7 @@ async def main():
                         import pandas as pd
                         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                         for strat_name, strat_engine in strategies:
-                            signal_data = strat_engine.check_entry_signal(df)
+                            signal_data = strat_engine.check_entry_signal(df, btc_bias_df)
                             
                             if signal_data['signal'] == 'BUY':
                                 entry_price = signal_data['price']

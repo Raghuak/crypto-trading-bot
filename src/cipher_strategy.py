@@ -148,10 +148,10 @@ class CipherStrategy:
     def evaluate_gates(self, df: pd.DataFrame, btc_df: pd.DataFrame = None) -> dict:
         """Evaluates all 6 Gated Confirmation Stack layers and returns final signal dict."""
         # Dynamically fetch BTC/USDT bias if self.exchange is set and btc_df is not provided
-        if btc_df is None and self.exchange is not None:
+        if btc_df is None and self.exchange is not None and Config.ENABLE_BTC_TREND_FILTER:
             try:
-                # Fetch 200 bars of BTC/USDT on the 1-hour timeframe to evaluate bias
-                btc_ohlcv = self.exchange.fetch_ohlcv("BTC/USDT", "1h", limit=200)
+                # Fetch recent bars of BTC/USDT on the 1-hour timeframe to evaluate momentum drop
+                btc_ohlcv = self.exchange.fetch_ohlcv("BTC/USDT", "1h", limit=10)
                 if btc_ohlcv:
                     btc_df = pd.DataFrame(btc_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             except Exception as e:
@@ -209,22 +209,28 @@ class CipherStrategy:
         is_trending = curr_adx > self.adx_threshold
         result['regime'] = 'TREND' if is_trending else 'RANGE'
         
-        # --- LAYER 2: HTF Bias & BTC Filter ---
-        # Fetch 200 EMA of closed prices for trend bias
+        # --- LAYER 2: HTF Bias & BTC Dynamic Flash-Crash Shield ---
+        # Fetch 200 EMA of closed prices for trend bias (if alt trend filter enabled)
         ema_200 = close.ewm(span=200, adjust=False).mean().iloc[-1]
         is_htf_bullish = True if not Config.ENABLE_ALT_TREND_FILTER else (curr_price > ema_200)
         
-        # Check BTC correlation
-        btc_bullish = True
-        if Config.ENABLE_BTC_TREND_FILTER and btc_df is not None and len(btc_df) >= 200:
+        # Check BTC correlation: Dynamic Flash-Crash Shield
+        # Protects against active sudden dumps while allowing normal base-building & range trading
+        if Config.ENABLE_BTC_TREND_FILTER and btc_df is not None and len(btc_df) >= 2:
             btc_close = btc_df['close']
-            btc_ema_200 = btc_close.ewm(span=200, adjust=False).mean().iloc[-1]
-            btc_bullish = btc_close.iloc[-1] > btc_ema_200
+            btc_open = btc_df['open']
             
-        # Alt-Long restriction: Cannot go long on alt if BTC bias is bearish
-        if Config.ENABLE_BTC_TREND_FILTER and not btc_bullish:
-            result['reason'] = 'Vetoed: BTC higher timeframe structure is bearish'
-            return result
+            # Measure active 1h candle drop and rolling 1h close-to-close drop
+            curr_drop = ((btc_close.iloc[-1] - btc_open.iloc[-1]) / btc_open.iloc[-1]) * 100.0
+            roll_drop = ((btc_close.iloc[-1] - btc_close.iloc[-2]) / btc_close.iloc[-2]) * 100.0
+            worst_drop = min(curr_drop, roll_drop)
+            
+            crash_threshold = getattr(Config, 'BTC_CRASH_DROP_THRESHOLD_PCT', 0.75)
+            
+            # If BTC is actively plunging (> 0.75% in 1 hour), veto all entries to avoid knife-catching!
+            if worst_drop <= -crash_threshold:
+                result['reason'] = f'Vetoed: BTC flash-dump in progress ({worst_drop:.2f}% in 1h)'
+                return result
             
         # --- LAYER 3: Location (Structure Check) ---
         # For trend follow, price should be near local support or pull back to 21/50 EMA zone

@@ -42,9 +42,10 @@ class Config:
     ATR_MULTIPLIER_SL: float = float(os.getenv("ATR_MULTIPLIER_SL", "1.5"))
     ATR_MULTIPLIER_TP: float = float(os.getenv("ATR_MULTIPLIER_TP", "3.0"))
     
-    # Gated Cipher B Safety Filters (defaulted to False to increase trade frequency)
-    ENABLE_BTC_TREND_FILTER: bool = os.getenv("ENABLE_BTC_TREND_FILTER", "False").lower() in ("true", "1", "yes")
+    # Gated Cipher B Safety Filters
+    ENABLE_BTC_TREND_FILTER: bool = os.getenv("ENABLE_BTC_TREND_FILTER", "True").lower() in ("true", "1", "yes")
     ENABLE_ALT_TREND_FILTER: bool = os.getenv("ENABLE_ALT_TREND_FILTER", "False").lower() in ("true", "1", "yes")
+    BTC_CRASH_DROP_THRESHOLD_PCT: float = float(os.getenv("BTC_CRASH_DROP_THRESHOLD_PCT", "0.75"))
 
     @classmethod
     def validate(cls) -> bool:
