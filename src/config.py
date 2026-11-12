@@ -6,6 +6,15 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
+def _parse_scan_symbols() -> list[str]:
+    default = "BTC/USDT,ETH/USDT,SOL/USDT,ADA/USDT,DOT/USDT,LINK/USDT,AVAX/USDT,NEAR/USDT,SUI/USDT,OP/USDT"
+    raw = [s.strip() for s in os.getenv("SCAN_SYMBOLS", default).split(",") if s.strip()]
+    excluded = {"APT/USDT", "DOGE/USDT"}
+    symbols = [s for s in raw if s not in excluded]
+    if "SUI/USDT" not in symbols:
+        symbols.append("SUI/USDT")
+    return symbols
+
 class Config:
     # Bot Mode
     PAPER_TRADING: bool = os.getenv("PAPER_TRADING", "True").lower() in ("true", "1", "yes")
@@ -32,7 +41,8 @@ class Config:
     # Strategy Configuration
     STRATEGY_TYPE: str = os.getenv("STRATEGY_TYPE", "ema")
     TIMEFRAME: str = os.getenv("TIMEFRAME", "1h")
-    SCAN_SYMBOLS: list[str] = [s.strip() for s in os.getenv("SCAN_SYMBOLS", "BTC/USDT,ETH/USDT").split(",") if s.strip()]
+    SCAN_SYMBOLS: list[str] = _parse_scan_symbols()
+
     EMA_FAST_PERIOD: int = int(os.getenv("EMA_FAST_PERIOD", "20"))
     EMA_SLOW_PERIOD: int = int(os.getenv("EMA_SLOW_PERIOD", "50"))
     RSI_PERIOD: int = int(os.getenv("RSI_PERIOD", "14"))
@@ -46,6 +56,7 @@ class Config:
     ENABLE_BTC_TREND_FILTER: bool = os.getenv("ENABLE_BTC_TREND_FILTER", "True").lower() in ("true", "1", "yes")
     ENABLE_ALT_TREND_FILTER: bool = os.getenv("ENABLE_ALT_TREND_FILTER", "False").lower() in ("true", "1", "yes")
     BTC_CRASH_DROP_THRESHOLD_PCT: float = float(os.getenv("BTC_CRASH_DROP_THRESHOLD_PCT", "0.75"))
+    MIN_COMPOSITE_SCORE: float = float(os.getenv("MIN_COMPOSITE_SCORE", "70.0"))
 
     @classmethod
     def validate(cls) -> bool:
